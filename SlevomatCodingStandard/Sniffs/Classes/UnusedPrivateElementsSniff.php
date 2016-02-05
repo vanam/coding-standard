@@ -14,6 +14,8 @@ class UnusedPrivateElementsSniff implements \PHP_CodeSniffer_Sniff
 
 	const CODE_WRITE_ONLY_PROPERTY = 'writeOnlyProperty';
 
+	const CODE_READ_ONLY_PROPERTY = 'readOnlyProperty';
+
 	const CODE_UNUSED_METHOD = 'unusedMethod';
 
 	/** @var string[] */
@@ -73,12 +75,24 @@ class UnusedPrivateElementsSniff implements \PHP_CodeSniffer_Sniff
 		$reportedProperties = $this->getProperties($phpcsFile, $tokens, $classToken);
 		$reportedMethods = $this->getMethods($phpcsFile, $tokens, $classToken);
 
-		if (count($reportedProperties) === 0) {
+		if (count($reportedProperties) === 0 && count($reportedMethods) === 0) {
 			return;
 		}
 
-		$writeOnlyProperties = [];
+		$writtenToProperties = [];
+		$readFromProperties = [];
+
+		foreach ($reportedProperties as $name => $propertyTokenPointer) {
+			$equalsPointer = TokenHelper::findNextNonWhitespace($phpcsFile, $propertyTokenPointer + 1);
+			$equalsToken = $tokens[$equalsPointer];
+			if ($equalsToken['code'] === T_EQUAL) {
+				$writtenToProperties[$name] = $propertyTokenPointer;
+			}
+		}
+
 		$findUsagesStartTokenPointer = $classToken['scope_opener'] + 1;
+
+		$assignmentTokens = array_merge(\PHP_CodeSniffer_Tokens::$assignmentTokens, [T_INC, T_DEC]);
 
 		while (($propertyAccessTokenPointer = $phpcsFile->findNext([T_VARIABLE, T_SELF, T_STATIC], $findUsagesStartTokenPointer, $classToken['scope_closer'])) !== false) {
 			$propertyAccessToken = $tokens[$propertyAccessTokenPointer];
@@ -108,18 +122,20 @@ class UnusedPrivateElementsSniff implements \PHP_CodeSniffer_Sniff
 					continue;
 				}
 
-				$assignTokenPointer = TokenHelper::findNextNonWhitespace($phpcsFile, $propertyNameTokenPointer + 1);
-				$assignToken = $tokens[$assignTokenPointer];
-				if ($assignToken['code'] === T_EQUAL) {
-					// assigning value to a property - note possible write-only property
-					$findUsagesStartTokenPointer = $assignTokenPointer + 1;
-					$writeOnlyProperties[$name] = $propertyNameTokenPointer;
+				if (!isset($reportedProperties[$name])) {
+					$findUsagesStartTokenPointer = $methodCallTokenPointer + 1;
 					continue;
 				}
 
-				if (isset($reportedProperties[$name])) {
-					unset($reportedProperties[$name]);
+				$assignTokenPointer = TokenHelper::findNextNonWhitespace($phpcsFile, $propertyNameTokenPointer + 1);
+				$assignToken = $tokens[$assignTokenPointer];
+				if (in_array($assignToken['code'], $assignmentTokens, true)) {
+					$findUsagesStartTokenPointer = $assignTokenPointer + 1;
+					$writtenToProperties[$name] = $propertyNameTokenPointer;
+					continue;
 				}
+
+				$readFromProperties[$name] = $propertyNameTokenPointer;
 
 				$findUsagesStartTokenPointer = $propertyNameTokenPointer + 1;
 			} elseif (in_array($propertyAccessToken['code'], [T_SELF, T_STATIC], true)) {
@@ -156,26 +172,25 @@ class UnusedPrivateElementsSniff implements \PHP_CodeSniffer_Sniff
 			} else {
 				$findUsagesStartTokenPointer = $propertyAccessTokenPointer + 1;
 			}
-
-			if (count($reportedProperties) + count($reportedMethods) === 0) {
-				return;
-			}
 		}
 
-		if (count($reportedProperties) + count($reportedMethods) === 0) {
-			return;
-		}
+		$writeOnlyProperties = array_diff_key($writtenToProperties, $readFromProperties);
+		$readOnlyProperties = array_diff_key($readFromProperties, $writtenToProperties);
+		$unusedProperties = array_diff_key($reportedProperties, $writtenToProperties, $readFromProperties);
 
 		$classNamePointer = $phpcsFile->findNext(T_STRING, $classPointer);
 		$className = $tokens[$classNamePointer]['content'];
 
-		foreach ($reportedProperties as $name => $propertyTokenPointer) {
-			$phpcsFile->addError(sprintf(
-				'Class %s contains %s property: $%s',
-				$className,
-				isset($writeOnlyProperties[$name]) ? 'write-only' : 'unused',
-				$name
-			), $propertyTokenPointer, isset($writeOnlyProperties[$name]) ? self::CODE_WRITE_ONLY_PROPERTY : self::CODE_UNUSED_PROPERTY);
+		foreach ($writeOnlyProperties as $name => $propertyTokenPointer) {
+			$this->addError($phpcsFile, $className, $name, $reportedProperties[$name], 'write-only', self::CODE_WRITE_ONLY_PROPERTY);
+		}
+
+		foreach ($readOnlyProperties as $name => $propertyTokenPointer) {
+			$this->addError($phpcsFile, $className, $name, $reportedProperties[$name], 'read-only', self::CODE_READ_ONLY_PROPERTY);
+		}
+
+		foreach ($unusedProperties as $name => $propertyTokenPointer) {
+			$this->addError($phpcsFile, $className, $name, $reportedProperties[$name], 'unused', self::CODE_UNUSED_PROPERTY);
 		}
 
 		foreach ($reportedMethods as $name => $methodTokenPointer) {
@@ -185,6 +200,23 @@ class UnusedPrivateElementsSniff implements \PHP_CodeSniffer_Sniff
 				$name
 			), $methodTokenPointer, self::CODE_UNUSED_METHOD);
 		}
+	}
+
+	private function addError(
+		PHP_CodeSniffer_File $phpcsFile,
+		$className,
+		$name,
+		$pointer,
+		$type,
+		$errorCode
+	)
+	{
+		$phpcsFile->addError(sprintf(
+			'Class %s contains %s property: $%s',
+			$className,
+			$type,
+			$name
+		), $pointer, $errorCode);
 	}
 
 	/**

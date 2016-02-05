@@ -46,20 +46,26 @@ class UnusedPrivateElementsSniffTest extends \SlevomatCodingStandard\Sniffs\Test
 		$this->assertNoSniffError($resultFile, 33);
 		$this->assertSniffError(
 			$resultFile,
-			48,
+			35,
+			UnusedPrivateElementsSniff::CODE_READ_ONLY_PROPERTY,
+			'Class ClassWithSomeUnusedProperties contains read-only property: $readOnlyProperty'
+		);
+		$this->assertSniffError(
+			$resultFile,
+			53,
 			UnusedPrivateElementsSniff::CODE_UNUSED_METHOD,
 			'Class ClassWithSomeUnusedProperties contains unused private method: unusedPrivateMethod'
 		);
-		$this->assertNoSniffError($resultFile, 51);
 		$this->assertNoSniffError($resultFile, 58);
 		$this->assertNoSniffError($resultFile, 63);
+		$this->assertNoSniffError($resultFile, 68);
 		$this->assertSniffError(
 			$resultFile,
-			68,
+			73,
 			UnusedPrivateElementsSniff::CODE_UNUSED_METHOD,
 			'Class ClassWithSomeUnusedProperties contains unused private method: unusedStaticPrivateMethod'
 		);
-		$this->assertNoSniffError($resultFile, 73);
+		$this->assertNoSniffError($resultFile, 78);
 	}
 
 }
