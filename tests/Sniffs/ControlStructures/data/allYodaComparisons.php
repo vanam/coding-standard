@@ -31,3 +31,5 @@ FOO === (int) $bar;
 array(self::ADMIN_EMAIL === $username ? self::ROLE_ADMIN : self::ROLE_CUSTOMER);
 [[] === $array];
 [array() === $array];
+A::TYPE_A === $param or A::TYPE_B === $param;
+$param === A::TYPE_A or A::TYPE_B === $param;
